@@ -51,10 +51,42 @@ impl MemorySet {
     pub fn token(&self) -> usize {
         self.page_table.token()
     }
-    /// Get the page table
-    pub fn page_table(&mut self) -> &'static mut PageTable {
-        unsafe { &mut *(&mut self.page_table as *mut PageTable) }
+    /// Map a physical memory area to a virtual memory area.
+    #[allow(clippy::result_unit_err)]
+    pub fn mmap_area(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        perm: MapPermission,
+    ) -> Result<(), ()> {
+        for area in &self.areas {
+            if !(end_va <= area.vpn_range.get_start().into()
+                || start_va >= area.vpn_range.get_end().into())
+            {
+                return Err(());
+            }
+        }
+        let new_area = MapArea::new(start_va, end_va, MapType::Framed, perm);
+        self.push(new_area, None);
+        Ok(())
     }
+
+    /// Unmap a virtual memory area.
+    #[allow(clippy::result_unit_err)]
+    pub fn munmap_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> Result<(), ()> {
+        let pos = self.areas.iter().position(|area| {
+            area.vpn_range.get_start() == start_va.floor()
+                && area.vpn_range.get_end() == end_va.ceil()
+        });
+        if let Some(index) = pos {
+            let mut area = self.areas.remove(index);
+            area.unmap(&mut self.page_table);
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
     /// Assume that no conflicts.
     pub fn insert_framed_area(
         &mut self,

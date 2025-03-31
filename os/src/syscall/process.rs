@@ -3,8 +3,8 @@ use crate::{
     config::PAGE_SIZE,
     mm::{translated_byte_buffer, *},
     task::{
-        change_program_brk, current_page_table, current_user_token, exit_current_and_run_next,
-        get_syscall_times, suspend_current_and_run_next,
+        change_program_brk, current_user_token, exit_current_and_run_next, get_syscall_times,
+        mmap_area, munmap_area, suspend_current_and_run_next,
     },
     timer::get_time_us,
 };
@@ -35,17 +35,6 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-
-    let page_table = PageTable::from_token(current_user_token());
-    let start_vpn = VirtAddr::from(ts as usize).floor();
-    let end_vpn = VirtAddr::from(ts as usize + core::mem::size_of::<TimeVal>()).ceil();
-
-    for vpn in VPNRange::new(start_vpn, end_vpn) {
-        match page_table.translate(vpn) {
-            Some(pte) if pte.is_valid() && pte.writable() && pte.user() => {}
-            _ => return -1,
-        }
-    }
 
     let time = translated_byte_buffer(
         current_user_token(),
@@ -123,42 +112,15 @@ pub fn sys_mmap(start: usize, len: usize, prot: usize) -> isize {
         return 0;
     }
 
-    let token = current_user_token();
-    let pagetable = PageTable::from_token(token);
+    let start_va = VirtAddr::from(start);
+    let end_va = VirtAddr::from(start + len);
+    let mut map_perm = MapPermission::from_bits((prot << 1) as u8).unwrap();
+    map_perm |= MapPermission::U;
 
-    let start_vpn = VirtAddr::from(start).floor();
-    let end_vpn = VirtAddr::from(start + len).ceil();
-
-    for vpn in VPNRange::new(start_vpn, end_vpn) {
-        if let Some(pte) = pagetable.translate(vpn) {
-            if pte.is_valid() {
-                return -1;
-            }
-        }
+    match mmap_area(start_va, end_va, map_perm) {
+        Ok(()) => 0,
+        Err(()) => -1,
     }
-
-    let mut flags = PTEFlags::empty();
-    if prot & 0x1 != 0 {
-        flags |= PTEFlags::R;
-    }
-    if prot & 0x2 != 0 {
-        flags |= PTEFlags::W;
-    }
-    if prot & 0x4 != 0 {
-        flags |= PTEFlags::X;
-    }
-    flags |= PTEFlags::U;
-
-    let pagetable = current_page_table();
-
-    for vpn in VPNRange::new(start_vpn, end_vpn) {
-        let frame = match frame_alloc() {
-            Some(frame) => frame,
-            None => return -1,
-        };
-        pagetable.map(vpn, frame.ppn, flags);
-    }
-    0
 }
 
 // YOUR JOB: Implement munmap.
@@ -171,25 +133,13 @@ pub fn sys_munmap(start: usize, len: usize) -> isize {
         return 0;
     }
 
-    let token = current_user_token();
-    let mut pagetable = PageTable::from_token(token);
+    let start_va = VirtAddr::from(start);
+    let end_va = VirtAddr::from(start + len);
 
-    let start_vpn = VirtAddr::from(start).floor();
-    let end_vpn = VirtAddr::from(start + len).ceil();
-
-    for vpn in VPNRange::new(start_vpn, end_vpn) {
-        match pagetable.translate(vpn) {
-            Some(pte) if pte.is_valid() => {}
-            _ => {
-                return -1;
-            }
-        }
+    match munmap_area(start_va, end_va) {
+        Ok(()) => 0,
+        Err(()) => -1,
     }
-
-    for vpn in VPNRange::new(start_vpn, end_vpn) {
-        pagetable.unmap(vpn);
-    }
-    0
 }
 
 /// change data segment size

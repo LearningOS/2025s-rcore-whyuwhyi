@@ -2,7 +2,6 @@
 use super::SyscallInfo;
 use super::TaskContext;
 use crate::config::TRAP_CONTEXT_BASE;
-use crate::mm::PageTable;
 use crate::mm::{
     kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
 };
@@ -40,9 +39,9 @@ impl TaskControlBlock {
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
     }
-    /// get the page table
-    pub fn get_page_table(&mut self) -> &'static mut PageTable {
-        self.memory_set.page_table()
+    /// get the memory set
+    pub fn get_memory_set(&self) -> &MemorySet {
+        &self.memory_set
     }
     /// get the user token
     pub fn get_user_token(&self) -> usize {

@@ -16,7 +16,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
-use crate::mm::PageTable;
+use crate::mm::*;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -123,12 +123,6 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_user_token()
     }
 
-    fn get_current_page_table(&self) -> &'static mut PageTable {
-        let mut inner = self.inner.exclusive_access();
-        let cur = inner.current_task;
-        inner.tasks[cur].get_page_table()
-    }
-
     /// Get the current 'Running' task's trap contexts.
     fn get_current_trap_cx(&self) -> &'static mut TrapContext {
         let inner = self.inner.exclusive_access();
@@ -173,6 +167,30 @@ impl TaskManager {
         let inner = self.inner.exclusive_access();
         inner.tasks[inner.current_task].get_syscall_times(id)
     }
+
+    /// map a area in current task's memory set
+    #[allow(clippy::result_unit_err)]
+    pub fn mmap_area(
+        &self,
+        start_va: VirtAddr,
+        end_va: VirtAddr,
+        perm: MapPermission,
+    ) -> Result<(), ()> {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        let memory_set = &mut inner.tasks[cur].memory_set;
+        memory_set.mmap_area(start_va, end_va, perm)
+    }
+
+    /// unmap a area in current task's memory set
+    #[allow(clippy::result_unit_err)]
+    pub fn munmap_area(&self, start_va: VirtAddr, end_va: VirtAddr) -> Result<(), ()> {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        let memory_set = &mut inner.tasks[cur].memory_set;
+
+        memory_set.munmap_area(start_va, end_va)
+    }
 }
 
 /// Run the first task in task list.
@@ -213,11 +231,6 @@ pub fn current_user_token() -> usize {
     TASK_MANAGER.get_current_token()
 }
 
-/// Get the current 'Running' task's page table.
-pub fn current_page_table() -> &'static mut PageTable {
-    TASK_MANAGER.get_current_page_table()
-}
-
 /// Get the current 'Running' task's trap contexts.
 pub fn current_trap_cx() -> &'static mut TrapContext {
     TASK_MANAGER.get_current_trap_cx()
@@ -236,4 +249,16 @@ pub fn increase_syscall_times(id: usize) {
 /// return the syscall times of a syscall which syscall id is `id`
 pub fn get_syscall_times(id: usize) -> usize {
     TASK_MANAGER.get_syscall_times(id)
+}
+
+/// map a area in current task's memory set
+#[allow(clippy::result_unit_err)]
+pub fn mmap_area(start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) -> Result<(), ()> {
+    TASK_MANAGER.mmap_area(start_va, end_va, perm)
+}
+
+/// unmap a area in current task's memory set
+#[allow(clippy::result_unit_err)]
+pub fn munmap_area(start_va: VirtAddr, end_va: VirtAddr) -> Result<(), ()> {
+    TASK_MANAGER.munmap_area(start_va, end_va)
 }
