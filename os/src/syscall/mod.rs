@@ -28,11 +28,16 @@ const SYSCALL_TRACE: usize = 410;
 mod fs;
 mod process;
 
+use super::task::increase_syscall_times;
 use fs::*;
 use process::*;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+    if syscall_is_valid(syscall_id) {
+        increase_syscall_times(syscall_id);
+    }
+
     match syscall_id {
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
         SYSCALL_EXIT => sys_exit(args[0] as i32),
@@ -44,4 +49,16 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_SBRK => sys_sbrk(args[0] as i32),
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
+}
+
+/// check if the syscall is valid
+pub fn syscall_is_valid(syscall_id: usize) -> bool {
+    syscall_id == SYSCALL_WRITE
+        || syscall_id == SYSCALL_EXIT
+        || syscall_id == SYSCALL_YIELD
+        || syscall_id == SYSCALL_GET_TIME
+        || syscall_id == SYSCALL_TRACE
+        || syscall_id == SYSCALL_MMAP
+        || syscall_id == SYSCALL_MUNMAP
+        || syscall_id == SYSCALL_SBRK
 }

@@ -1,4 +1,5 @@
 //! Types related to task management
+use super::SyscallInfo;
 use super::TaskContext;
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::mm::{
@@ -28,6 +29,9 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// syscalls info
+    pub syscall_info: [SyscallInfo; 20],
 }
 
 impl TaskControlBlock {
@@ -63,6 +67,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            syscall_info: [SyscallInfo::new(0); 20],
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();
@@ -94,6 +99,32 @@ impl TaskControlBlock {
             Some(old_break)
         } else {
             None
+        }
+    }
+
+    /// get syscall times
+    pub fn get_syscall_times(&self, id: usize) -> usize {
+        for info in self.syscall_info.iter() {
+            if info.id() == id {
+                return info.times();
+            } else if info.times() == 0 {
+                return 0;
+            }
+        }
+        0
+    }
+
+    /// increase syscall times
+    pub fn increase_syscall_times(&mut self, id: usize) {
+        for info in self.syscall_info.iter_mut() {
+            if info.id() == id {
+                info.increase();
+                return;
+            } else if info.times() == 0 {
+                info.id = id;
+                info.times = 1;
+                return;
+            }
         }
     }
 }

@@ -10,6 +10,7 @@
 //! might not be what you expect.
 
 mod context;
+mod info;
 mod switch;
 #[allow(clippy::module_inception)]
 mod task;
@@ -23,6 +24,7 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+pub use info::SyscallInfo;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -153,6 +155,18 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    /// update syscall times when a syscall occurs
+    fn increase_syscall_times(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].increase_syscall_times(id);
+    }
+    /// return the syscall times of a syscall which syscall id is `id`
+    fn get_syscall_times(&self, id: usize) -> usize {
+        let inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].get_syscall_times(id)
+    }
 }
 
 /// Run the first task in task list.
@@ -201,4 +215,14 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// update syscall times when a syscall occurs
+pub fn increase_syscall_times(id: usize) {
+    TASK_MANAGER.increase_syscall_times(id);
+}
+
+/// return the syscall times of a syscall which syscall id is `id`
+pub fn get_syscall_times(id: usize) -> usize {
+    TASK_MANAGER.get_syscall_times(id)
 }
