@@ -16,6 +16,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::PageTable;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -122,6 +123,12 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_user_token()
     }
 
+    fn get_current_page_table(&self) -> &'static mut PageTable {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].get_page_table()
+    }
+
     /// Get the current 'Running' task's trap contexts.
     fn get_current_trap_cx(&self) -> &'static mut TrapContext {
         let inner = self.inner.exclusive_access();
@@ -164,8 +171,7 @@ impl TaskManager {
     /// return the syscall times of a syscall which syscall id is `id`
     fn get_syscall_times(&self, id: usize) -> usize {
         let inner = self.inner.exclusive_access();
-        let cur = inner.current_task;
-        inner.tasks[cur].get_syscall_times(id)
+        inner.tasks[inner.current_task].get_syscall_times(id)
     }
 }
 
@@ -205,6 +211,11 @@ pub fn exit_current_and_run_next() {
 /// Get the current 'Running' task's token.
 pub fn current_user_token() -> usize {
     TASK_MANAGER.get_current_token()
+}
+
+/// Get the current 'Running' task's page table.
+pub fn current_page_table() -> &'static mut PageTable {
+    TASK_MANAGER.get_current_page_table()
 }
 
 /// Get the current 'Running' task's trap contexts.

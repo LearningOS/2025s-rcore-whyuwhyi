@@ -1,11 +1,10 @@
 //! Process management syscalls
 use crate::{
     config::PAGE_SIZE,
-    mm::translated_byte_buffer,
-    mm::*,
+    mm::{translated_byte_buffer, *},
     task::{
-        change_program_brk, current_user_token, exit_current_and_run_next, get_syscall_times,
-        suspend_current_and_run_next,
+        change_program_brk, current_page_table, current_user_token, exit_current_and_run_next,
+        get_syscall_times, suspend_current_and_run_next,
     },
     timer::get_time_us,
 };
@@ -43,7 +42,7 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 
     for vpn in VPNRange::new(start_vpn, end_vpn) {
         match page_table.translate(vpn) {
-            Some(pte) if pte.is_valid() && pte.writable() => {}
+            Some(pte) if pte.is_valid() && pte.writable() && pte.user() => {}
             _ => return -1,
         }
     }
@@ -82,42 +81,33 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
     trace!("kernel: sys_trace");
 
+    let pagetable = PageTable::from_token(current_user_token());
+    let vaddr = VirtAddr::from(id);
+    let vpn = VirtAddr::from(id).floor();
+
     match trace_request {
-        0 => {
-            let pagetable = PageTable::from_token(current_user_token());
-            let vpn = VirtAddr::from(id).floor();
-
-            match pagetable.translate(vpn) {
-                Some(pte) if pte.is_valid() && pte.readable() => {}
-                _ => return -1,
+        0 => match pagetable.translate(vpn) {
+            Some(pte) if pte.is_valid() && pte.readable() && pte.user() => {
+                let ppn = pte.ppn();
+                let offset = vaddr.page_offset();
+                let page_ptr = ppn.get_bytes_array().as_ptr();
+                let byte = unsafe { *page_ptr.add(offset) };
+                byte as isize
             }
-
-            let buffer = translated_byte_buffer(current_user_token(), id as *const u8, 1);
-            if let Some(slice) = buffer.first() {
-                slice.first().copied().map_or(-1, |byte| byte as isize)
-            } else {
-                -1
-            }
-        }
-        1 => {
-            let pagetable = PageTable::from_token(current_user_token());
-            let vpn = VirtAddr::from(id).floor();
-
-            match pagetable.translate(vpn) {
-                Some(pte) if pte.is_valid() && pte.writable() => {}
-                _ => return -1,
-            }
-
-            let mut buffer = translated_byte_buffer(current_user_token(), id as *const u8, 1);
-
-            if let Some(slice) = buffer.first_mut() {
-                if let Some(byte) = slice.first_mut() {
-                    *byte = data as u8;
-                    return 0;
+            _ => -1,
+        },
+        1 => match pagetable.translate(vpn) {
+            Some(pte) if pte.is_valid() && pte.writable() && pte.user() => {
+                let ppn = pte.ppn();
+                let offset = vaddr.page_offset();
+                let page_ptr = ppn.get_bytes_array().as_mut_ptr();
+                unsafe {
+                    *page_ptr.add(offset) = data as u8;
                 }
+                0
             }
-            -1
-        }
+            _ => -1,
+        },
         2 => get_syscall_times(id) as isize,
         _ => -1,
     }
@@ -134,15 +124,16 @@ pub fn sys_mmap(start: usize, len: usize, prot: usize) -> isize {
     }
 
     let token = current_user_token();
-    let mut pagetable = PageTable::from_token(token);
+    let pagetable = PageTable::from_token(token);
 
     let start_vpn = VirtAddr::from(start).floor();
     let end_vpn = VirtAddr::from(start + len).ceil();
 
     for vpn in VPNRange::new(start_vpn, end_vpn) {
-        match pagetable.translate(vpn) {
-            Some(pte) if pte.is_valid() => return -1,
-            _ => {}
+        if let Some(pte) = pagetable.translate(vpn) {
+            if pte.is_valid() {
+                return -1;
+            }
         }
     }
 
@@ -157,6 +148,8 @@ pub fn sys_mmap(start: usize, len: usize, prot: usize) -> isize {
         flags |= PTEFlags::X;
     }
     flags |= PTEFlags::U;
+
+    let pagetable = current_page_table();
 
     for vpn in VPNRange::new(start_vpn, end_vpn) {
         let frame = match frame_alloc() {
@@ -187,7 +180,9 @@ pub fn sys_munmap(start: usize, len: usize) -> isize {
     for vpn in VPNRange::new(start_vpn, end_vpn) {
         match pagetable.translate(vpn) {
             Some(pte) if pte.is_valid() => {}
-            _ => return -1,
+            _ => {
+                return -1;
+            }
         }
     }
 
