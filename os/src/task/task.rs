@@ -1,8 +1,9 @@
 //! Types related to task management & Functions for completely changing TCB
-use super::TaskContext;
+use super::{current_user_token, TaskContext};
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::config::{BIG_STRIDE, TRAP_CONTEXT_BASE};
+use crate::loader::get_app_data_by_name;
+use crate::mm::{translated_str, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -49,6 +50,12 @@ pub struct TaskControlBlockInner {
 
     /// Maintain the execution status of the current process
     pub task_status: TaskStatus,
+
+    /// stride of a task
+    pub stride: usize,
+
+    /// pass of a task
+    pub pass: usize,
 
     /// Application address space
     pub memory_set: MemorySet,
@@ -112,6 +119,8 @@ impl TaskControlBlock {
                     base_size: user_sp,
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
+                    stride: 0,
+                    pass: BIG_STRIDE / 16,
                     memory_set,
                     parent: None,
                     children: Vec::new(),
@@ -185,6 +194,8 @@ impl TaskControlBlock {
                     base_size: parent_inner.base_size,
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
+                    stride: parent_inner.stride,
+                    pass: parent_inner.pass,
                     memory_set,
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
@@ -204,6 +215,24 @@ impl TaskControlBlock {
         task_control_block
         // **** release child PCB
         // ---- release parent PCB
+    }
+    /// spawn a new process
+    pub fn spawn(self: &Arc<Self>, path: *const u8) -> Option<Arc<Self>> {
+        let token = current_user_token();
+        let path = translated_str(token, path);
+
+        let elf_data = get_app_data_by_name(path.as_str());
+        match elf_data {
+            Some(elf_data) => {
+                let task_control_block = Arc::new(TaskControlBlock::new(elf_data));
+                let mut inner = task_control_block.inner_exclusive_access();
+                inner.parent = Some(Arc::downgrade(self));
+                let mut parent_inner = self.inner_exclusive_access();
+                parent_inner.children.push(task_control_block.clone());
+                Some(task_control_block.clone())
+            }
+            None => None,
+        }
     }
 
     /// get pid of process
@@ -235,6 +264,28 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+    /// map a area in current task's memory set
+    pub fn mmap_area(&self, start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        inner.memory_set.mmap_area(start_va, end_va, perm)
+    }
+
+    /// unmap a area in current task's memory set
+    pub fn munmap_area(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        inner.memory_set.munmap_area(start_va, end_va)
+    }
+
+    /// set pass
+    pub fn set_pass(&self, pass: usize) {
+        let mut inner = self.inner_exclusive_access();
+        inner.pass = pass;
+    }
+    /// get stride of process
+    pub fn get_stride(&self) -> usize {
+        let inner = self.inner_exclusive_access();
+        inner.stride
     }
 }
 
