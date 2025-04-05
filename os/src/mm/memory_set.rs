@@ -54,6 +54,34 @@ impl MemorySet {
     pub fn token(&self) -> usize {
         self.page_table.token()
     }
+    /// Map a physical memory area to a virtual memory area.
+    pub fn mmap_area(&mut self, start_va: VirtAddr, end_va: VirtAddr, perm: MapPermission) -> bool {
+        for area in &self.areas {
+            if !(end_va <= area.vpn_range.get_start().into()
+                || start_va >= area.vpn_range.get_end().into())
+            {
+                return false;
+            }
+        }
+        let new_area = MapArea::new(start_va, end_va, MapType::Framed, perm);
+        self.push(new_area, None);
+        true
+    }
+
+    /// Unmap a virtual memory area.
+    pub fn munmap_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
+        let pos = self.areas.iter().position(|area| {
+            area.vpn_range.get_start() == start_va.floor()
+                && area.vpn_range.get_end() == end_va.ceil()
+        });
+        if let Some(index) = pos {
+            let mut area = self.areas.remove(index);
+            area.unmap(&mut self.page_table);
+            true
+        } else {
+            false
+        }
+    }
     /// Assume that no conflicts.
     pub fn insert_framed_area(
         &mut self,
@@ -382,6 +410,7 @@ impl MapArea {
             self.unmap_one(page_table, vpn);
         }
     }
+
     #[allow(unused)]
     pub fn shrink_to(&mut self, page_table: &mut PageTable, new_end: VirtPageNum) {
         for vpn in VPNRange::new(new_end, self.vpn_range.get_end()) {
