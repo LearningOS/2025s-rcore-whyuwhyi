@@ -13,7 +13,7 @@
 1. 不会轮到 `p1` 执行，因为 `p2` 执行之后，它的 `stride` 应该加上 `pass`，此过程产生溢出，
 `p2` 的 `stride` 为 `5` ，它依然获得下一次执行的机会。
 
-2.当一次时钟中断发生后，对于 `stride` 最小的进程， `stride += BIG_STRIDE/priority`，
+2. 当一次时钟中断发生后，对于 `stride` 最小的进程， `stride += BIG_STRIDE/priority`，
 由于 `priority >= 2` ，每次最低 `stride` 的增长度不会超过 `BIG_STRIDE/2` ， `stride`最大
 的进程和 `stride` 最小的进程的 `stride` 的差值自然不会超过 `BIG_STRDE/2` 。
 
