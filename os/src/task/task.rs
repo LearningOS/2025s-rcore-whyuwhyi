@@ -1,9 +1,8 @@
 //! Types related to task management & Functions for completely changing TCB
-use super::{current_user_token, TaskContext};
-use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
+use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle, TaskContext};
 use crate::config::{BIG_STRIDE, TRAP_CONTEXT_BASE};
 use crate::fs::{File, Stdin, Stdout};
-use crate::mm::{translated_str, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::mm::{MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -241,13 +240,13 @@ impl TaskControlBlock {
         // ---- release parent PCB
     }
     /// spawn a new process
-    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> isize {
+    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self> {
         let task_control_block = Arc::new(TaskControlBlock::new(elf_data));
         let mut inner = task_control_block.inner_exclusive_access();
         inner.parent = Some(Arc::downgrade(self));
         let mut parent_inner = self.inner_exclusive_access();
         parent_inner.children.push(task_control_block.clone());
-        task_control_block.pid.0 as isize
+        task_control_block.clone()
     }
 
     /// get pid of process

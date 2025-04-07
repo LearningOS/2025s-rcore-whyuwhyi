@@ -116,27 +116,30 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
         "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    let time = translated_byte_buffer(
+    let buffer = translated_byte_buffer(
         current_user_token(),
         ts as *const u8,
         core::mem::size_of::<TimeVal>(),
     );
-    if time.is_empty() {
+    if buffer.is_empty() {
         -1
     } else {
         let sys_time = get_time_us();
         let sec = sys_time / 1_000_000;
         let usec = sys_time % 1_000_000;
-
-        let sec_bytes = (sec as isize).to_ne_bytes();
-        let usec_bytes = (usec as isize).to_ne_bytes();
-        let data = [sec_bytes, usec_bytes].concat();
+        let time = TimeVal { sec, usec };
+        let bytes = unsafe {
+            core::slice::from_raw_parts(
+                &time as *const TimeVal as *const u8,
+                core::mem::size_of::<TimeVal>(),
+            )
+        };
 
         let mut offset = 0;
 
-        for word in time {
-            for byte in word {
-                *byte = data[offset];
+        for buf in buffer {
+            for byte in buf {
+                *byte = bytes[offset];
                 offset += 1;
             }
         }
@@ -216,8 +219,9 @@ pub fn sys_spawn(path: *const u8) -> isize {
     let path = translated_str(token, path);
     if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
         let all_data = app_inode.read_all();
-        let task = current_task().unwrap();
-        task.spawn(all_data.as_slice())
+        let task = current_task().unwrap().spawn(all_data.as_slice());
+        add_task(task.clone());
+        task.pid.0 as isize
     } else {
         -1
     }
