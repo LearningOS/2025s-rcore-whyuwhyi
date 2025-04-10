@@ -1,0 +1,67 @@
+# 实验说明
+
+1. 本次任务实现了 `sys_spawn` 系统调用，首先读取 `elf` 文件数据，如何根据 `elf` 文件数据创建
+新进程，最后注意设置新进程的父进程，并将其加入其父进程的子进程列表里。emm，还要将新进程
+加入就绪队列（这个坑了我很久）。
+
+2. `stride` 调度算法的实现是比较自然的，为了避免过多的除法运算，在进程控制块里直接储存 `pass` ,
+而不是 `priority` ，然后修改 `TaskManager` 的 `fetch` 函数返回 `stride` 最小的进程，直接遍历即可。
+最后需要在 `run_task` 中加入更新 `stride` 的逻辑。
+
+# 简答作业
+
+1. 不会轮到 `p1` 执行，因为 `p2` 执行之后，它的 `stride` 应该加上 `pass`，此过程产生溢出，
+`p2` 的 `stride` 为 `5` ，它依然获得下一次执行的机会。
+
+2.当一次时钟中断发生后，对于 `stride` 最小的进程， `stride += BIG_STRIDE/priority`，
+由于 `priority >= 2` ，每次最低 `stride` 的增长度不会超过 `BIG_STRIDE/2` ， `stride`最大
+的进程和 `stride` 最小的进程的 `stride` 的差值自然不会超过 `BIG_STRDE/2` 。
+
+3.
+
+```
+
+use core::cmp::Ordering;
+
+struct Stride(u64);
+
+impl PartialOrd for Stride {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let half = 127;
+        let diff = (other.0.wrapping_sub(self.0)) & 0xff;
+        if diff <= half {
+            Some(Ordering::Less)
+        } else {
+            Some(Ordering::Greater)
+        }
+    }
+}
+
+impl PartialEq for Stride {
+    fn eq(&self, other: &Self) -> bool {
+        false
+    }
+}
+```
+
+# 荣誉准则
+
+1. 在完成本次实验的过程（含此前学习的过程）中，我曾分别与以下各位
+就（与本次实验相关的）以下方面做过交流，还在代码中对应的位置以注释
+形式记录了具体的交流对象及内容：
+
+    无。
+
+2. 此外，我也参考了以下资料 ，还在代码中对应的位置以注释形式记录了
+具体的参考来源及内容：
+
+    无。
+
+3. 我独立完成了本次实验除以上方面之外的所有工作，包括代码与文档。
+我清楚地知道，从以上方面获得的信息在一定程度上降低了实验难度，
+可能会影响起评分。
+
+4. 我从未使用过他人的代码，不管是原封不动地复制，还是经过了某些等价转换。
+我未曾也不会向他人（含此后各届同学）复制或公开我的实验代码，我有义务妥善保管好它们。
+我提交至本实验的评测系统的代码，均无意于破坏或妨碍任何计算机系统的正常运转。
+我清楚地知道，以上情况均为本课程纪律所禁止，若违反，对应的实验成绩将按“-100”分计。
